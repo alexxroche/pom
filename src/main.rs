@@ -21,9 +21,9 @@ fn main() {
         })
         .collect();
 
-    println!("New Moon      = {}", p[0]);
+    println!("New noon      = {}", p[0]);
     println!("First quarter = {}", p[1]);
-    println!("Full moon     = {}", p[2]);
+    println!("Full Moon     = {}", p[2]);
     println!("Last quarter  = {}", p[3]);
-    println!("New Moon      = {}", p[4]);
+    println!("New moon      = {}", p[4]);
 }

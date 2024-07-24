@@ -1,7 +1,11 @@
 [package]
 name = "pom"
-version = "0.1.0"
+version = "0.3.0"
 edition = "2021"
 
 [dependencies]
 chrono = "0.4.38"
+
+[profile.release]
+strip = true
+# or strip = "symbols"

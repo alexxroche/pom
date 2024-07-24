@@ -5,6 +5,7 @@
 use chrono::Utc;
 
 // Astronomical constants.
+
 /*
 #[allow(dead_code)]
 const EPOCH: f64 = 2444238.5; // 1980 january 0.0
@@ -46,7 +47,8 @@ const SYNMONTH: f64 = 29.53058868; // synodic month (new Moon to new Moon)
 
 // Properties of the Earth.
 
-static PI: f64 = 3.14159265358979323846; // assume not near black hole nor in Tennessee
+//static PI: f64 = 3.141_592_653_589_793; // assume not near black hole nor in Tennessee
+static PI: f64 = std::f64::consts::PI; // assume not near black hole nor in Tennessee
 
 // Handy mathematical functions.
 
@@ -73,14 +75,13 @@ fn jtime(t: f64) -> f64 {
 
 // jdaytosecs - convert Julian date to a UNIX epoch
 
-#[allow(dead_code)]
 fn jdaytosecs(jday: f64) -> f64 {
     (jday - 2440587.5) * 86400.0 // (juliandate - jdate of unix epoch)*(seconds per julian day)
 }
 
 // jyear - convert Julian date to year, month, day, which are
 // returned via integer pointers to integers
-fn jyear(td: f64, yy: &mut f64, mm: &mut f64, dd: &mut f64) -> () {
+fn jyear(td: f64, yy: &mut f64, mm: &mut f64, dd: &mut f64) {
     let td: f64 = td + 0.5; // astronomical to civil
     let z: f64 = td.floor();
     let f: f64 = td - z;
@@ -110,13 +111,14 @@ fn jyear(td: f64, yy: &mut f64, mm: &mut f64, dd: &mut f64) -> () {
     };
 }
 
-////  meanphase  --  Calculates  time  of  the mean new Moon for a given
-////                 base date.  This argument K to this function is the
-////                 precomputed synodic month index, given by:
-////
-////                        K = (year - 1900) * 12.3685
-////
-////                 where year is expressed as a year and fractional year.
+/*  meanphase  --  Calculates  time  of  the mean new Moon for a given
+                   base date.  This argument K to this function is the
+                   precomputed synodic month index, given by:
+
+                          K = (year - 1900) * 12.3685
+
+                   where year is expressed as a year and fractional year.
+*/
 
 fn meanphase(sdate: f64, k: f64) -> f64 {
     //// Time in Julian centuries from 1900 January 0.5
@@ -196,7 +198,8 @@ fn truephase(k: f64, phase: f64) -> f64 {
     //asset!(apcor, format!("truephase() called with invalid phase selector ({}).\n", phase);
     assert_eq!(
         apcor, 1.0,
-        "{}", format!("truephase() called with invalid phase selector ({}).\n", phase)
+        "truephase() called with invalid phase selector ({}).\n",
+        phase
     );
     pt
 }
@@ -247,6 +250,389 @@ pub fn phasehunt(sdate: Option<f64>) -> Vec<f64> {
 }
 
 /*
+package Astro::MoonPhase;
+@EXPORT = qw(phase phasehunt phaselist);
+$VERSION = '0.60';
+
+# Handy mathematical functions.
+
+sub sgn		{ return (($_[0] < 0) ? -1 : ($_[0] > 0 ? 1 : 0)); } 	# extract sign
+sub fixangle	{ return ($_[0] - 360.0 * (floor($_[0] / 360.0))); }	# fix angle
+sub torad	{ return ($_[0] * ($Pi / 180.0)); }						# deg->rad
+sub todeg	{ return ($_[0] * (180.0 / $Pi)); }						# rad->deg
+sub dsin	{ return (sin(torad($_[0]))); }						# sin from deg
+sub dcos	{ return (cos(torad($_[0]))); }						# cos from deg
+
+sub tan		{ return sin($_[0])/cos($_[0]); }
+sub asin	{ return ($_[0]<-1 or $_[0]>1) ? undef : atan2($_[0],sqrt(1-$_[0]*$_[0])); }
+sub atan {
+    if		($_[0]==0)	{ return 0; }
+    elsif	($_[0]>0)	{ return atan2(sqrt(1+$_[0]*$_[0]),sqrt(1+1/($_[0]*$_[0]))); }
+    else 				{ return -atan2(sqrt(1+$_[0]*$_[0]),sqrt(1+1/($_[0]*$_[0]))); }
+}
+
+sub floor {
+  my $val   = shift;
+  my $neg   = $val < 0;
+  my $asint = int($val);
+  my $exact = $val == $asint;
+
+  return ($exact ? $asint : $neg ? $asint - 1 : $asint);
+}
+
+# phaselist - find time of phases of the moon between two dates
+# times (in & out) are seconds_since_1970
+
+sub phaselist
+{
+  my ($sdate, $edate) = map { jtime($_) } @_;
+
+  my (@phases, $d, $k, $yy, $mm);
+
+  jyear($sdate, \$yy, \$mm, \$d);
+  $k = floor(($yy + (($mm - 1) * (1.0 / 12.0)) - 1900) * 12.3685) - 2;
+
+  while (1) {
+    ++$k;
+    for my $phase (0.0, 0.25, 0.5, 0.75) {
+      $d = truephase($k, $phase);
+
+      return @phases if $d >= $edate;
+
+      if ($d >= $sdate) {
+        push @phases, int(4 * $phase) unless @phases;
+        push @phases, jdaytosecs($d);
+      } # end if date should be listed
+    } # end for each $phase
+  } # end while 1
+} # end phaselist
+
+
+
+# kepler - solve the equation of Kepler
+
+sub kepler {
+    my ($m, $ecc) = @_;
+    my ($e, $delta);
+    my $EPSILON = 1e-6;
+
+    $m = torad($m);
+    $e = $m;
+    do {
+        $delta = $e - $ecc * sin($e) - $m;
+        $e -= $delta / (1 - $ecc * cos($e));
+    } while (abs($delta) > $EPSILON);
+    return ($e);
+}
+
+
+
+# phase - calculate phase of moon as a fraction:
+#
+# The argument is the time for which the phase is requested,
+# expressed as a Julian date and fraction.  Returns the terminator
+# phase angle as a percentage of a full circle (i.e., 0 to 1),
+# and stores into pointer arguments the illuminated fraction of
+# the Moon's disc, the Moon's age in days and fraction, the
+# distance of the Moon from the centre of the Earth, and the
+# angular diameter subtended by the Moon as seen by an observer
+# at the centre of the Earth.
+
+sub phase {
+    my $pdate = jtime(shift || time());
+
+    my $pphase;				# illuminated fraction
+    my $mage;				# age of moon in days
+    my $dist;				# distance in kilometres
+    my $angdia;				# angular diameter in degrees
+    my $sudist;				# distance to Sun
+    my $suangdia;				# sun's angular diameter
+
+    my ($Day, $N, $M, $Ec, $Lambdasun, $ml, $MM, $MN, $Ev, $Ae, $A3, $MmP,
+       $mEc, $A4, $lP, $V, $lPP, $NP, $y, $x, $Lambdamoon, $BetaM,
+       $MoonAge, $MoonPhase,
+       $MoonDist, $MoonDFrac, $MoonAng, $MoonPar,
+       $F, $SunDist, $SunAng,
+       $mpfrac);
+
+    # Calculation of the Sun's position.
+
+    $Day = $pdate - $Epoch;						# date within epoch
+    $N = fixangle((360 / 365.2422) * $Day);				# mean anomaly of the Sun
+    $M = fixangle($N + $Elonge - $Elongp);				# convert from perigee
+                                    # co-ordinates to epoch 1980.0
+    $Ec = kepler($M, $Eccent);					# solve equation of Kepler
+    $Ec = sqrt((1 + $Eccent) / (1 - $Eccent)) * tan($Ec / 2);
+    $Ec = 2 * todeg(atan($Ec));					# true anomaly
+    $Lambdasun = fixangle($Ec + $Elongp);				# Sun's geocentric ecliptic
+                                    # longitude
+    # Orbital distance factor.
+    $F = ((1 + $Eccent * cos(torad($Ec))) / (1 - $Eccent * $Eccent));
+    $SunDist = $Sunsmax / $F;					# distance to Sun in km
+    $SunAng = $F * $Sunangsiz;					# Sun's angular size in degrees
+
+
+    # Calculation of the Moon's position.
+
+    # Moon's mean longitude.
+    $ml = fixangle(13.1763966 * $Day + $Mmlong);
+
+    # Moon's mean anomaly.
+    $MM = fixangle($ml - 0.1114041 * $Day - $Mmlongp);
+
+    # Moon's ascending node mean longitude.
+    $MN = fixangle($Mlnode - 0.0529539 * $Day);
+
+    # Evection.
+    $Ev = 1.2739 * sin(torad(2 * ($ml - $Lambdasun) - $MM));
+
+    # Annual equation.
+    $Ae = 0.1858 * sin(torad($M));
+
+    # Correction term.
+    $A3 = 0.37 * sin(torad($M));
+
+    # Corrected anomaly.
+    $MmP = $MM + $Ev - $Ae - $A3;
+
+    # Correction for the equation of the centre.
+    $mEc = 6.2886 * sin(torad($MmP));
+
+    # Another correction term.
+    $A4 = 0.214 * sin(torad(2 * $MmP));
+
+    # Corrected longitude.
+    $lP = $ml + $Ev + $mEc - $Ae + $A4;
+
+    # Variation.
+    $V = 0.6583 * sin(torad(2 * ($lP - $Lambdasun)));
+
+    # True longitude.
+    $lPP = $lP + $V;
+
+    # Corrected longitude of the node.
+    $NP = $MN - 0.16 * sin(torad($M));
+
+    # Y inclination coordinate.
+    $y = sin(torad($lPP - $NP)) * cos(torad($Minc));
+
+    # X inclination coordinate.
+    $x = cos(torad($lPP - $NP));
+
+    # Ecliptic longitude.
+    $Lambdamoon = todeg(atan2($y, $x));
+    $Lambdamoon += $NP;
+
+    # Ecliptic latitude.
+    $BetaM = todeg(asin(sin(torad($lPP - $NP)) * sin(torad($Minc))));
+
+    # Calculation of the phase of the Moon.
+
+    # Age of the Moon in degrees.
+    $MoonAge = $lPP - $Lambdasun;
+
+    # Phase of the Moon.
+    $MoonPhase = (1 - cos(torad($MoonAge))) / 2;
+
+    # Calculate distance of moon from the centre of the Earth.
+
+    $MoonDist = ($Msmax * (1 - $Mecc * $Mecc)) /
+        (1 + $Mecc * cos(torad($MmP + $mEc)));
+
+    # Calculate Moon's angular diameter.
+
+    $MoonDFrac = $MoonDist / $Msmax;
+    $MoonAng = $Mangsiz / $MoonDFrac;
+
+    # Calculate Moon's parallax.
+
+    $MoonPar = $Mparallax / $MoonDFrac;
+
+    $pphase = $MoonPhase;
+    $mage = $Synmonth * (fixangle($MoonAge) / 360.0);
+    $dist = $MoonDist;
+    $angdia = $MoonAng;
+    $sudist = $SunDist;
+    $suangdia = $SunAng;
+    $mpfrac = fixangle($MoonAge) / 360.0;
+    return wantarray ? ( $mpfrac, $pphase, $mage, $dist, $angdia, $sudist,$suangdia ) : $mpfrac;
+}
+
+1;
+__END__
+
+=head1 NAME
+
+Astro::MoonPhase - Information about the phase of the Moon
+
+=head1 SYNOPSIS
+
+use Astro::MoonPhase;
+
+    ( $MoonPhase,
+      $MoonIllum,
+      $MoonAge,
+      $MoonDist,
+      $MoonAng,
+      $SunDist,
+      $SunAng ) = phase($seconds_since_1970);
+
+    @phases  = phasehunt($seconds_since_1970);
+
+    ($phase, @times) = phaselist($start, $stop);
+
+=head1 DESCRIPTION
+
+MoonPhase calculates information about the phase of the moon
+at a given time.
+
+=head1 FUNCTIONS
+
+=head2 phase()
+
+    ( $MoonPhase,
+      $MoonIllum,
+      $MoonAge,
+      $MoonDist,
+      $MoonAng,
+      $SunDist,
+      $SunAng )  = phase($seconds_since_1970);
+
+      $MoonPhase = phase($seconds_since_1970);
+
+The argument is the time for which the phase is requested,
+expressed as a time returned by the C<time> function. If C<$seconds_since_1970>
+is omitted, it does C<phase(time)>.
+
+Return value in scalar context is $MoonPhase,
+the terminator phase angle as a percentage of a full circle (i.e., 0 to 1).
+
+=over 4
+
+=item B<Return values in array context:>
+
+=item $MoonPhase:
+
+the terminator phase angle as a percentage of a full circle (i.e., 0 to 1)
+
+=item $MoonIllum:
+
+the illuminated fraction of the Moon's disc
+
+=item $MoonAge:
+
+the Moon's age in days and fraction
+
+=item $MoonDist:
+
+the distance of the Moon from the centre of the Earth
+
+=item $MoonAng:
+
+the angular diameter subtended by the Moon as seen by
+an observer at the centre of the Earth.
+
+=item $SunDist:
+
+the distance from the Sun in km
+
+=item $SunAng:
+
+the angular size of Sun in degrees
+
+=back
+
+Example:
+
+   ( $MoonPhase,
+     $MoonIllum,
+     $MoonAge,
+     $MoonDist,
+     $MoonAng,
+     $SunDist,
+     $SunAng ) = phase();
+
+     print "MoonPhase  = $MoonPhase\n";
+     print "MoonIllum  = $MoonIllum\n";
+     print "MoonAge    = $MoonAge\n";
+     print "MoonDist   = $MoonDist\n";
+     print "MoonAng    = $MoonAng\n";
+     print "SunDist    = $SunDist\n";
+     print "SunAng     = $SunAng\n";
+
+could print something like this:
+
+     MoonPhase  = 0.598939375319023
+     MoonIllum  = 0.906458030827876
+     MoonAge    = 17.6870323368022
+     MoonDist   = 372479.357420033
+     MoonAng    = 0.534682403555093
+     SunDist    = 152078368.820205
+     SunAng     = 0.524434538105092
+
+=head2 phasehunt()
+
+     @phases = phasehunt($seconds_since_1970);
+
+Finds time of phases of the moon which surround the given
+date.  Five phases are found, starting and ending with the
+new moons which bound the current lunation.
+
+The argument is the time, expressed as a time returned
+by the C<time> function. If C<$seconds_since_1970>
+is omitted, it does C<phasehunt(time)>.
+
+Example:
+
+    @phases = phasehunt();
+    print "New Moon      = ", scalar(localtime($phases[0])), "\n";
+    print "First quarter = ", scalar(localtime($phases[1])), "\n";
+    print "Full moon     = ", scalar(localtime($phases[2])), "\n";
+    print "Last quarter  = ", scalar(localtime($phases[3])), "\n";
+    print "New Moon      = ", scalar(localtime($phases[4])), "\n";
+
+could print something like this:
+
+    New Moon      = Wed Jun 24 06:51:47 1998
+    First quarter = Wed Jul  1 21:42:19 1998
+    Full moon     = Thu Jul  9 19:02:47 1998
+    Last quarter  = Thu Jul 16 18:15:18 1998
+    New Moon      = Thu Jul 23 16:45:01 1998
+
+=head2 phaselist()
+
+    ($phase, @times) = phaselist($start, $stop);
+
+Finds times of all phases of the moon which occur on or after
+C<$start> but before C<$stop>.  Both the arguments and the return
+values are expressed as seconds since 1970 (like the C<time> function
+returns).
+
+C<$phase> is an integer indicating the phase of the moon at
+C<$times[0]>, as shown in this table:
+
+    0  New Moon
+    1  First quarter
+    2  Full Moon
+    3  Last quarter
+
+The remaining values in C<@times> indicate subsequent phases of the
+moon (in ascending order by time).  If there are no phases of the moon
+between C<$start> and C<$stop>, C<phaselist> returns the empty list.
+
+Example:
+
+    @name = ("New Moon", "First quarter", "Full moon", "Last quarter");
+    ($phase, @times) = phaselist($start, $stop);
+
+    while (@times) {
+      printf "%-14s= %s\n", $name[$phase], scalar localtime shift @times;
+      $phase = ($phase + 1) % 4;
+    }
+
+could produce the same output as the C<phasehunt> example above (given
+the appropriate start & stop times).
+
 =head1 ABOUT THE ALGORITHMS
 
 The algorithms used in this program to calculate the positions of Sun and
