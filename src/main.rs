@@ -1,5 +1,5 @@
 //use chrono::{DateTime, Utc};
-use chrono::DateTime;
+use chrono::{DateTime, Local};
 use pom::phasehunt;
 
 fn main() {
@@ -10,13 +10,16 @@ fn main() {
        both of which were a thin wrapper to the perl module Astro::MoonPhase;
     */
 
-    //let p: Vec<String> = phasehunt(Some(Utc::now().timestamp() as f64))
-    let p: Vec<String> = phasehunt(None)
+    //let p: Vec<String> = phasehunt(Some(Utc::now().timestamp() as f64), None)
+    let dt = Local::now();
+    let offset = dt.offset().clone();
+    //let p: Vec<String> = phasehunt(None, Some(offset.local_minus_utc() as i32))
+    let p: Vec<String> = phasehunt(None, None)
         .into_iter()
-        .map(|x| {
-            DateTime::from_timestamp(x as i64, 0)
-                .unwrap()
-                .format("%a %b %d %H:%M:%S %Y")
+        .map(|x| DateTime::from_timestamp(x as i64, 0).unwrap().naive_local())
+        .map(|y| {
+            DateTime::<Local>::from_naive_utc_and_offset(y, offset)
+                .format("%a %b %e %H:%M:%S %Y (%Z)")
                 .to_string()
         })
         .collect();

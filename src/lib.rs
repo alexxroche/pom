@@ -2,7 +2,7 @@
   A direct port of the perl module Astro::MoonPhase;
 */
 
-use chrono::Utc;
+use chrono::{offset::FixedOffset, Local, Utc};
 
 // Astronomical constants.
 
@@ -209,9 +209,16 @@ fn truephase(k: f64, phase: f64) -> f64 {
 // new moons which bound the current lunation
 
 //fn phasehunt<Tz: chrono::TimeZone>(sdate: Option<DateTime<Tz>>) -> Vec<f64> {
-pub fn phasehunt(sdate: Option<f64>) -> Vec<f64> {
+pub fn phasehunt(sdate: Option<f64>, tz: Option<i32>) -> Vec<f64> {
     let sdate: f64 = match sdate {
-        None => jtime(Utc::now().timestamp() as f64),
+        None => match tz {
+            None => jtime(Local::now().timestamp() as f64),
+            Some(tmz) => jtime(
+                Utc::now()
+                    .with_timezone(&{ FixedOffset::east_opt(tmz * 60i32 * 60i32).unwrap() })
+                    .timestamp() as f64,
+            ),
+        },
         Some(_) => jtime(sdate.expect("Try converting to a timestamp")),
     };
 
